@@ -8,6 +8,7 @@ const path = require('path');
 const { Storage } = require('megajs');
 const Model = require('./models');
 const multer = require('multer');
+const { console } = require("inspector");
 const upload = multer({ dest: 'uploads/' }); // dossier de destination des fichiers téléchargés
 
 // Servir les fichiers statiques du répertoire 'uploads'
@@ -49,7 +50,7 @@ socketIO.on("connection", (socket) => {
       
       socketIO.emit('onlineUsers', onlineUsers); // Broadcast des utilisateurs en ligne
       
-      Model.User.getUserChats(userData.id)
+      Model.Chat.getUserChats(userData.id)
       .then(chats => {
         socketIO.emit('chatList', chats)
       })
@@ -127,24 +128,36 @@ socketIO.on("connection", (socket) => {
   });
 
   socket.on("createChat", (data) => {
-    const params = {
-      id_src : parseInt(data.src, 10),
-      id_dst: parseInt(data.dst, 10)
-    }
-    console.log(params);
-    // chatgroups.unshift({
-    //   id: chatgroups.length + 1,
-    //   currentGroupName,
-    //   messages: [],
-    // });
-
-    Model.User.getUserChats(params.id_src)
-    .then(chats => {
-      socketIO.emit('chatList', chats)
+    const params = [
+      parseInt(data.src, 10),
+      parseInt(data.dst, 10)
+    ]
+    // console.log(params);
+    
+    Model.Chat.createChat(params)
+    .then(result => {
+      if(result.status == 200){
+        socket.emit('createChat', {
+          status: result.status, 
+          id: result.data.insertId,
+          userId: parseInt(data.dst, 10)
+        })
+  
+        Model.Chat.getUserChats(params[0])
+        .then(chats => {
+          socketIO.emit('chatList', chats)
+        })
+        .catch(err => {
+          socketIO.emit('chatList', err)
+        });
+      } else {
+        socket.emit('createChat', {status: 500, msg: 'Un problème inattendu est survenu lors du traitement de votre requette'})
+      }
     })
+    
     .catch(err => {
-      socketIO.emit('chatList', err)
-    });
+      console.error('Erro when creating a new what', err)
+    })
   });
 
   socket.on("findGroup", (id) => {
@@ -171,6 +184,26 @@ socketIO.on("connection", (socket) => {
     socket.emit("groupList", chatgroups);
     socket.emit("foundGroup", filteredGroup[0].messages);
   });
+
+  socket.on('currentUser', (data) => {
+    Model.User.getUserById(data)
+    .then(result => {
+      socket.emit('currentUser', result)
+    })
+    .catch(err => {
+      socket.emit('currentUser', err)
+    })
+  })
+
+  socket.on('oldMessages', (data) => {
+    Model.User.getUserById(data)
+    .then(result => {
+      socket.emit('oldMessages', result)
+    })
+    .catch(err => {
+      socket.emit('oldMessages', err)
+    })
+  })
 
   // Retire l'utilisateur du tableau lorsqu'il se déconnecte
   socket.on('disconnect', () => {
@@ -785,6 +818,7 @@ app.get("/home", (req, res) => {
               const recipientId = document.getElementById('recipient').value;
               // Émettre un événement pour créer un nouveau chat
               socket.emit('createChat', { dst : recipientId, src : user.id });
+              loadRecentChats();
             });
 
             // Fonction pour charger les chats récents de l'utilisateur
@@ -805,50 +839,51 @@ app.get("/home", (req, res) => {
                   return;
                 }
 
-                // chats.forEach(chat => {
-                //   const chatItem = document.createElement('div');
-                //   chatItem.classList.add('chat-item', 'd-flex', 'align-items-center', 'p-2', 'border-bottom');
+                chats.forEach(chat => {
+                  const chatItem = document.createElement('div');
+                  chatItem.classList.add('chat-item', 'd-flex', 'align-items-center', 'p-2', 'border-bottom');
 
-                //   // Ajouter la photo de profil de l'autre utilisateur dans le chat
-                //   const profileImg = document.createElement('img');
-                //   profileImg.src = chat.photo || 'default-profile.png'; // Remplacez par une image par défaut si aucune n'est disponible
-                //   profileImg.alt = chat.name;
-                //   profileImg.classList.add('rounded-circle', 'mr-3');
-                //   profileImg.style.width = '40px';
-                //   profileImg.style.height = '40px';
-                //   chatItem.appendChild(profileImg);
+                  // Ajouter la photo de profil de l'autre utilisateur dans le chat
+                  const profileImg = document.createElement('img');
+                  profileImg.src = '/uploads/' + chat.user_photo // Remplacez par une image par défaut si aucune n'est disponible
+                  profileImg.alt = chat.user_name;
+                  profileImg.classList.add('rounded-circle', 'mr-3');
+                  profileImg.style.width = '40px';
+                  profileImg.style.height = '40px';
+                  chatItem.appendChild(profileImg);
 
-                //   const chatDetails = document.createElement('div');
-                //   chatDetails.classList.add('flex-grow-1');
+                  const chatDetails = document.createElement('div');
+                  chatDetails.classList.add('flex-grow-1');
 
-                //   // Afficher le nom de l'autre utilisateur dans le chat
-                //   const userName = document.createElement('h6');
-                //   userName.textContent = chat.name;
-                //   userName.classList.add('mb-0', 'font-weight-bold');
-                //   chatDetails.appendChild(userName);
+                  // Afficher le nom de l'autre utilisateur dans le chat
+                  const userName = document.createElement('h6');
+                  userName.textContent = chat.user_name;
+                  userName.classList.add('mb-0', 'font-weight-bold');
+                  chatDetails.appendChild(userName);
 
-                //   // Afficher le dernier message envoyé ou reçu
-                //   const lastMessage = document.createElement('p');
-                //   lastMessage.textContent = chat.lastMessage;
-                //   lastMessage.classList.add('mb-0', 'text-muted', 'small');
-                //   chatDetails.appendChild(lastMessage);
+                  // Afficher le dernier message envoyé ou reçu
+                  const lastMessage = document.createElement('p');
+                  lastMessage.textContent = chat.msg_content;
+                  lastMessage.classList.add('mb-0', 'text-muted', 'small');
+                  chatDetails.appendChild(lastMessage);
 
-                //   // Ajouter la date ou l'heure du dernier message
-                //   const messageDate = document.createElement('span');
-                //   messageDate.textContent = chat.lastMessageDate; // Format date à ajuster si nécessaire
-                //   messageDate.classList.add('text-muted', 'small', 'ml-auto');
-                //   chatItem.appendChild(messageDate);
+                  // Ajouter la date ou l'heure du dernier message
+                  const messageDate = document.createElement('span');
+                  messageDate.textContent = chat.last_message_date; // Format date à ajuster si nécessaire
+                  messageDate.classList.add('text-muted', 'small', 'ml-auto');
+                  chatItem.appendChild(messageDate);
 
-                //   chatItem.appendChild(chatDetails);
-                //   chatList.appendChild(chatItem);
+                  chatItem.appendChild(chatDetails);
+                  chatList.appendChild(chatItem);
 
-                //   // Écouter les clics sur chaque chat pour l'ouvrir
-                //   chatItem.addEventListener('click', () => {
-                //     // Action à définir pour ouvrir le chat
-                //     console.log('Ouverture du chat avec '+ chat.name);
-                //     openChat(chat.id);  // Fonction fictive, à définir
-                //   });
-                // });
+                  // Écouter les clics sur chaque chat pour l'ouvrir
+                  chatItem.addEventListener('click', () => {
+                    // Action à définir pour ouvrir le chat
+                    console.log('Ouverture du chat avec '+ chat.name);
+                    openChat(chat.chat_id);  // Fonction fictive, à définir
+                  });
+                });
+
               });
 
               // Émettre un événement pour demander la liste des chats de l'utilisateur
@@ -857,12 +892,20 @@ app.get("/home", (req, res) => {
 
             // Appel de la fonction pour charger les chats récents
             loadRecentChats();
+            socket.on('createChat', data =>{
+              console.log(data)
+              if(data.status == 200){
+                window.location.href = '/chat/' + data.id + '/' + data.userId
+              } else {
+               alert(data.msg)
+              }
+            })
           </script>
         </body>
         </html>
         `
     
-      res.status(200).send(receptionPageHtml);
+        res.status(200).send(receptionPageHtml);
       }
     })
     .catch(err => {
@@ -890,6 +933,206 @@ app.get("/home", (req, res) => {
         </html>
       `);
     });
+});
+
+// Route pour la page de chat
+app.get('/chat/:id/:userId', (req, res) => {
+  const chatId = parseInt(req.params.id)
+  const userId = parseInt(req.params.userId)
+
+  const chatPage = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Chat</title>
+        <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+          body {
+              margin: 0;
+              font-family: Arial, sans-serif;
+              background-color: #ece5dd;
+          }
+
+          .chat-container {
+              display: flex;
+              flex-direction: column;
+              height: 100vh;
+              margin: auto;
+              background-color: #fff;
+              border: 1px solid #ddd;
+          }
+
+          .chat-header {
+              display: flex;
+              align-items: center;
+              padding: 15px;
+              background-color: #075e54;
+              color: white;
+          }
+
+          .profile-pic {
+              width: 40px;
+              height: 40px;
+              border-radius: 50%;
+              margin-right: 10px;
+          }
+
+          .chat-header-info {
+              display: flex;
+              flex-direction: column;
+          }
+
+          .chat-box {
+              flex-grow: 1;
+              padding: 10px;
+              overflow-y: auto;
+              background-color: #e5ddd5;
+          }
+
+          .chat-message {
+              display: flex;
+              flex-direction: column;
+              margin-bottom: 10px;
+              max-width: 80%;
+              background-color: #dcf8c6;
+              padding: 10px;
+              border-radius: 8px;
+          }
+
+          .chat-input {
+              display: flex;
+              align-items: center;
+              padding: 10px;
+              border-top: 1px solid #ddd;
+          }
+
+          #message-input {
+              flex-grow: 1;
+              padding: 10px;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+              margin-right: 5px;
+          }
+
+          #send-button {
+              background-color: #075e54;
+              color: white;
+              border: none;
+              padding: 10px;
+              border-radius: 5px;
+              cursor: pointer;
+          }
+
+        </style>  
+    </head>
+    <body>
+        <div class="chat-container">
+            <div class="chat-header">
+                <img src="profile-placeholder.png" alt="Profile" class="profile-pic">
+                <div class="chat-header-info">
+                    <h4 id="interlocutor-name">Interlocuteur</h4>
+                    <p id="last-seen">Vu pour la dernière fois à 15:00</p>
+                </div>
+            </div>
+            <div class="chat-box" id="chat-box">
+                <!-- Les messages apparaîtront ici -->
+            </div>
+            <div class="chat-input">
+                <input type="text" id="message-input" placeholder="Tapez votre message...">
+                <button id="send-button">Envoyer</button>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+          const socket = io();
+          const chat = ${chatId};
+          const user = ${userId}; 
+
+          socket.emit('currentUser', user)
+          socket.on('currentUser', (result) => {
+            if(result.status == 200){
+                const { photo, name, phone, amount } = result.data[0];
+
+                // Mettre à jour la photo de profil
+                const profilePic = document.querySelector('.chat-header .profile-pic');
+                profilePic.src = '/uploads/' + photo;
+
+                // Mettre à jour le nom de l'interlocuteur
+                const interlocutorName = document.getElementById('interlocutor-name');
+                interlocutorName.textContent = name;
+
+                // Mettre à jour le solde de notre correspondant (ou autre info comme le "vu pour la dernière fois")
+                const lastSeen = document.getElementById('last-seen');
+                lastSeen.textContent = 'Solde: '+ amount + ' CDF';
+            } else {
+                alert(result.msg);
+            }
+          })
+
+          socket.emit('oldMessages', chat)
+          socket.on('oldMessages', (result) => {
+            if(result.status == 200){
+                // const { photo, name, phone, amount } = result.data[0];
+
+                // // Mettre à jour la photo de profil
+                // const profilePic = document.querySelector('.chat-header .profile-pic');
+                // profilePic.src = '/uploads/' + photo;
+
+                // // Mettre à jour le nom de l'interlocuteur
+                // const interlocutorName = document.getElementById('interlocutor-name');
+                // interlocutorName.textContent = name;
+
+                // // Mettre à jour le solde de notre correspondant (ou autre info comme le "vu pour la dernière fois")
+                // const lastSeen = document.getElementById('last-seen');
+                // lastSeen.textContent = 'Solde: '+ amount + ' CDF';
+            } else {
+                alert(result.msg);
+            }
+          })
+            
+          // Rejoindre une salle de chat unique basée sur les ID des utilisateurs
+          // socket.emit('joinRoom', { userId, interlocutorId });
+
+          // const chatBox = document.getElementById('chat-box');
+          // const messageInput = document.getElementById('message-input');
+          // const sendButton = document.getElementById('send-button');
+
+          // Écouter les messages entrants
+          // socket.on('message', (message) => {
+          //     const messageElement = document.createElement('div');
+          //     messageElement.classList.add('chat-message');
+          //     messageElement.textContent = message;
+          //     chatBox.appendChild(messageElement);
+          //     chatBox.scrollTop = chatBox.scrollHeight; // Scroller vers le bas
+          // });
+
+          // Envoyer un message
+          // sendButton.addEventListener('click', () => {
+          //     const message = messageInput.value.trim();
+          //     if (message) {
+          //         const roomId = [userId, interlocutorId].sort().join('-');
+          //         socket.emit('sendMessage', { roomId, message });
+          //         messageInput.value = '';
+          //     }
+          // });
+
+          // Gérer l'envoi de message avec la touche "Entrée"
+          // messageInput.addEventListener('keypress', (e) => {
+          //     if (e.key === 'Enter') {
+          //         sendButton.click();
+          //     }
+          // });
+
+        </script>
+    </body>
+    </html>
+
+  `
+  res.send(chatPage);
 });
 
 app.get("/api", (req, res) => {
