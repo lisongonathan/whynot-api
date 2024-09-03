@@ -49,6 +49,14 @@ socketIO.on("connection", (socket) => {
       
       socketIO.emit('onlineUsers', onlineUsers); // Broadcast des utilisateurs en ligne
       
+      Model.User.getUserChats(userData.id)
+      .then(chats => {
+        socketIO.emit('chatList', chats)
+      })
+      .catch(err => {
+        socketIO.emit('chatList', err)
+      });
+
     } else {
       console.log(`L'utilisateur ${userData.id} est déjà connecté.`);
     }
@@ -118,18 +126,25 @@ socketIO.on("connection", (socket) => {
     // }
   });
 
-  socket.on("getAllGroups", () => {
-    socket.emit("groupList", chatgroups);
-  });
+  socket.on("createChat", (data) => {
+    const params = {
+      id_src : parseInt(data.src, 10),
+      id_dst: parseInt(data.dst, 10)
+    }
+    console.log(params);
+    // chatgroups.unshift({
+    //   id: chatgroups.length + 1,
+    //   currentGroupName,
+    //   messages: [],
+    // });
 
-  socket.on("createNewGroup", (currentGroupName) => {
-    console.log(currentGroupName);
-    chatgroups.unshift({
-      id: chatgroups.length + 1,
-      currentGroupName,
-      messages: [],
+    Model.User.getUserChats(params.id_src)
+    .then(chats => {
+      socketIO.emit('chatList', chats)
+    })
+    .catch(err => {
+      socketIO.emit('chatList', err)
     });
-    socket.emit("groupList", chatgroups);
   });
 
   socket.on("findGroup", (id) => {
@@ -691,6 +706,7 @@ app.get("/home", (req, res) => {
             // Fonction pour charger les utilisateurs en ligne
             function loadOnlineUsers() {
               socket.on('onlineUsers', (users) => {
+                console.log(users)
                 const onlineUsersList = document.getElementById('online-users');
                 onlineUsersList.innerHTML = ''; // Vide la liste actuelle
 
@@ -739,7 +755,7 @@ app.get("/home", (req, res) => {
             socket.emit('userConnected', user); // Remplacez par les données utilisateur appropriées
             loadOnlineUsers();
 
-            // Fonction pour remplir la liste des utilisateurs dans le modal
+            //Fonction pour remplir la liste des utilisateurs dans le modal
             function fillRecipientList() {
               socket.on('allUsers', users => {
                 if(users.status == 200) {
@@ -768,22 +784,78 @@ app.get("/home", (req, res) => {
               event.preventDefault();
               const recipientId = document.getElementById('recipient').value;
               // Émettre un événement pour créer un nouveau chat
-              socket.emit('createChat', { dst : recipientId, src : ${id} });
+              socket.emit('createChat', { dst : recipientId, src : user.id });
             });
 
-            // Remplir la liste des chats récents
+            // Fonction pour charger les chats récents de l'utilisateur
             function loadRecentChats() {
-              // Vous pouvez remplacer par une requête API ou websocket pour charger les derniers chats
-              const chatList = document.getElementById('chat-list');
-              chatList.innerHTML = ''; // Vider la liste actuelle
+              // Écoute de l'événement 'chatList' pour obtenir la liste des chats
+              socket.on('chatList', (oldChats) => {
+                console.log("old chats", oldChats)
+                const chats = oldChats.data
 
-              // Exemple statique, à remplacer par des données dynamiques
-              const exampleChat = document.createElement('div');
-              exampleChat.classList.add('chat-item');
-              exampleChat.textContent = "WayNot";
-              chatList.appendChild(exampleChat);
+                const chatList = document.getElementById('chat-list');
+                chatList.innerHTML = ''; // Vider la liste actuelle
+
+                if (chats.length === 0) {
+                  const noChatsMessage = document.createElement('p');
+                  noChatsMessage.textContent = "Aucun chat disponible.";
+                  noChatsMessage.classList.add('text-muted', 'text-center');
+                  chatList.appendChild(noChatsMessage);
+                  return;
+                }
+
+                // chats.forEach(chat => {
+                //   const chatItem = document.createElement('div');
+                //   chatItem.classList.add('chat-item', 'd-flex', 'align-items-center', 'p-2', 'border-bottom');
+
+                //   // Ajouter la photo de profil de l'autre utilisateur dans le chat
+                //   const profileImg = document.createElement('img');
+                //   profileImg.src = chat.photo || 'default-profile.png'; // Remplacez par une image par défaut si aucune n'est disponible
+                //   profileImg.alt = chat.name;
+                //   profileImg.classList.add('rounded-circle', 'mr-3');
+                //   profileImg.style.width = '40px';
+                //   profileImg.style.height = '40px';
+                //   chatItem.appendChild(profileImg);
+
+                //   const chatDetails = document.createElement('div');
+                //   chatDetails.classList.add('flex-grow-1');
+
+                //   // Afficher le nom de l'autre utilisateur dans le chat
+                //   const userName = document.createElement('h6');
+                //   userName.textContent = chat.name;
+                //   userName.classList.add('mb-0', 'font-weight-bold');
+                //   chatDetails.appendChild(userName);
+
+                //   // Afficher le dernier message envoyé ou reçu
+                //   const lastMessage = document.createElement('p');
+                //   lastMessage.textContent = chat.lastMessage;
+                //   lastMessage.classList.add('mb-0', 'text-muted', 'small');
+                //   chatDetails.appendChild(lastMessage);
+
+                //   // Ajouter la date ou l'heure du dernier message
+                //   const messageDate = document.createElement('span');
+                //   messageDate.textContent = chat.lastMessageDate; // Format date à ajuster si nécessaire
+                //   messageDate.classList.add('text-muted', 'small', 'ml-auto');
+                //   chatItem.appendChild(messageDate);
+
+                //   chatItem.appendChild(chatDetails);
+                //   chatList.appendChild(chatItem);
+
+                //   // Écouter les clics sur chaque chat pour l'ouvrir
+                //   chatItem.addEventListener('click', () => {
+                //     // Action à définir pour ouvrir le chat
+                //     console.log('Ouverture du chat avec '+ chat.name);
+                //     openChat(chat.id);  // Fonction fictive, à définir
+                //   });
+                // });
+              });
+
+              // Émettre un événement pour demander la liste des chats de l'utilisateur
+              // socket.emit('getAllChats', { userId: user.id });
             }
 
+            // Appel de la fonction pour charger les chats récents
             loadRecentChats();
           </script>
         </body>
